@@ -90,6 +90,23 @@ ObjectValidator.prototype = {
     }
   },
 
+  clone() {
+    let clone       = new ObjectValidator();
+    let validations = this._validations;
+    keys(validations).forEach(function (attr) {
+      clone._validations[attr] = validations[attr].map(
+        function (list) { return list.slice(); }
+      );
+    });
+    let dependencies = this._dependencies;
+    keys(dependencies).forEach(function (attr) {
+      clone._dependencies[attr] = dependencies[attr].map(
+        function (list) { return list.slice(); }
+      );
+    });
+    return clone;
+  },
+
   _validateAttribute(object, attr, alreadyValidating) {
     let value       = config.get(object, attr);
     let validations = this._validations[attr];
