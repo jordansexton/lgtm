@@ -128,13 +128,17 @@ ObjectValidator.prototype = {
         let fn      = pair[0];
         let message = pair[1];
 
-        if(typeof message === 'function') {
-          message = message(value, attr, object);
-        }
-
         let promise = resolve()
           .then(() => fn(value, attr, object, options))
-          .then(isValid => [ attr, isValid ? null : message ]);
+          .then(function(isValid) {
+            if (isValid) {
+              message = null;
+            }
+            else if (typeof message === 'function') {
+              message = message(value, attr, object, options);
+            }
+            return [ attr, message ];
+          });
 
         results.push(promise);
       });
