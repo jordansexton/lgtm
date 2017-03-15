@@ -112,14 +112,23 @@
     attributes: function attributes() {
       return uniq(keys(this._validations).concat(keys(this._dependencies)));
     },
-    validate: function validate() /* object, attributes..., callback */{
+    validate: function validate() /* object, [attributes...], [options], [callback] */{
       var attributes = [].slice.apply(arguments);
       var object = attributes.shift();
       var callback = attributes.pop();
+      var options = attributes.pop();
       var self = this;
+
+      if (typeof options === 'string') {
+        attributes.push(options);
+        options = null;
+      }
 
       if (typeof callback === 'string') {
         attributes.push(callback);
+        callback = null;
+      } else if (typeof callback !== 'function') {
+        options = options || callback;
         callback = null;
       }
 
@@ -131,7 +140,7 @@
       var alreadyValidating = attributes.slice();
       for (var i = 0; i < attributes.length; i++) {
         var attr = attributes[i];
-        validationPromises = validationPromises.concat(this._validateAttribute(object, attr, alreadyValidating));
+        validationPromises = validationPromises.concat(this._validateAttribute(object, attr, options || {}, alreadyValidating));
       }
 
       var promise = all(validationPromises).then(function (results) {
@@ -151,7 +160,23 @@
         return promise;
       }
     },
-    _validateAttribute: function _validateAttribute(object, attr, alreadyValidating) {
+    clone: function clone() {
+      var clone = new ObjectValidator();
+      var validations = this._validations;
+      keys(validations).forEach(function (attr) {
+        clone._validations[attr] = validations[attr].map(function (list) {
+          return list.slice();
+        });
+      });
+      var dependencies = this._dependencies;
+      keys(dependencies).forEach(function (attr) {
+        clone._dependencies[attr] = dependencies[attr].map(function (list) {
+          return list.slice();
+        });
+      });
+      return clone;
+    },
+    _validateAttribute: function _validateAttribute(object, attr, options, alreadyValidating) {
       var value = config.get(object, attr);
       var validations = this._validations[attr];
       var results = [];
@@ -162,9 +187,14 @@
           var message = pair[1];
 
           var promise = resolve().then(function () {
-            return fn(value, attr, object);
+            return fn(value, attr, object, options);
           }).then(function (isValid) {
-            return [attr, isValid ? null : message];
+            if (isValid) {
+              message = null;
+            } else if (typeof message === 'function') {
+              message = message(value, attr, object, options);
+            }
+            return [attr, message];
           });
 
           results.push(promise);
@@ -178,7 +208,7 @@
         var dependent = dependents[i];
         if (alreadyValidating.indexOf(dependent) < 0) {
           alreadyValidating.push(dependent);
-          results = results.concat(this._validateAttribute(object, dependent, alreadyValidating));
+          results = results.concat(this._validateAttribute(object, dependent, options, alreadyValidating));
         }
       }
 
@@ -281,19 +311,19 @@
         }
       }
 
-      function validation(value, attr, object) {
+      function validation(value, attr, object, options) {
         var properties = getProperties(object, dependencies);
-        return predicate.apply(null, properties.concat([attr, object]));
+        return predicate.apply(null, properties.concat([attr, object, options]));
       }
 
       var conditions = this._conditions.slice();
       var conditionDependencies = this._conditionDependencies.slice();
 
-      function validationWithConditions(value, attr, object) {
+      function validationWithConditions(value, attr, object, options) {
         return all(conditions.map(function (condition, i) {
           var dependencies = conditionDependencies[i];
           var properties = getProperties(object, dependencies);
-          return condition.apply(null, properties.concat([attr, object]));
+          return condition.apply(null, properties.concat([attr, object, options]));
         })).then(function (results) {
           for (var _i = 0; _i < results.length; _i++) {
             // a condition resolved to a falsy value; return as valid
@@ -302,7 +332,7 @@
             }
           }
           // all conditions resolved to truthy values; continue with validation
-          return validation(value, attr, object);
+          return validation(value, attr, object, options);
         });
       }
 
@@ -311,6 +341,22 @@
     },
     build: function build() {
       return this._validator;
+    },
+    clone: function clone() {
+      var clone = new ValidatorBuilder();
+      if (this._attr != null) {
+        clone._attr = this._attr;
+      }
+      if (this._conditions != null) {
+        clone._conditions = this._conditions.slice();
+      }
+      if (this._conditionDependencies != null) {
+        clone._conditionDependencies = this._conditionDependencies.map(function (dependencies) {
+          return dependencies.slice();
+        });
+      }
+      clone._validator = this._validator.clone();
+      return clone;
     }
   };
 
